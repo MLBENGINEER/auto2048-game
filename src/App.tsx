@@ -682,8 +682,16 @@ export default function App() {
     }, 3500);
   }, []);
 
-  // Exponer para testing en consola y pruebas rápidas
+  // Atajos de prueba en consola, SOLO en desarrollo.
+  //
+  // En produccion no deben existir: permitian saltar a cualquier nivel desde la
+  // consola del navegador (testNivel, inyectarFicha) y, al pasar del nivel 15,
+  // el codigo asigna la puntuacion del puesto mas alto. Vite sustituye
+  // import.meta.env.DEV por false al compilar, asi que este bloque entero
+  // desaparece del bundle publicado.
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
+
     const w = window as unknown as {
       testHito?: () => void;
       spawnCohetes14?: () => void;
