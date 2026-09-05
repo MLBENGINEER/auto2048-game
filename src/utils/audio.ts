@@ -5,6 +5,52 @@ class SoundFX {
   public ctx: AudioContext | null = null;
   public isMuted: boolean = false;
 
+  /**
+   * Bus maestro por el que pasa todo el audio.
+   *
+   * Antes cada oscilador se conectaba directo a ctx.destination, asi que al
+   * encadenar fusiones las amplitudes se sumaban sin control y el navegador
+   * recortaba la onda: es lo que se oia como un sonido "loco" y sucio. El
+   * compresor absorbe esos picos y el gain deja margen de cabecera.
+   */
+  private bus: GainNode | null = null;
+
+  /** Marcas de tiempo del ultimo disparo de cada sonido, para no solaparlos. */
+  private ultimoDisparo: Record<string, number> = {};
+
+  public getBus(): AudioNode | null {
+    const ctx = this.initCtx();
+    if (!ctx) return null;
+    if (!this.bus) {
+      const limitador = ctx.createDynamicsCompressor();
+      limitador.threshold.setValueAtTime(-8, ctx.currentTime);
+      limitador.knee.setValueAtTime(6, ctx.currentTime);
+      limitador.ratio.setValueAtTime(12, ctx.currentTime);
+      limitador.attack.setValueAtTime(0.002, ctx.currentTime);
+      limitador.release.setValueAtTime(0.15, ctx.currentTime);
+
+      const maestro = ctx.createGain();
+      maestro.gain.setValueAtTime(0.7, ctx.currentTime);
+
+      maestro.connect(limitador);
+      limitador.connect(ctx.destination);
+      this.bus = maestro;
+    }
+    return this.bus;
+  }
+
+  /**
+   * Evita que un mismo sonido se vuelva a disparar antes de tiempo. Al
+   * encadenar fusiones rapidas se apilaban copias del mismo efecto.
+   */
+  public puedeSonar(clave: string, separacionMs: number): boolean {
+    const ahora = performance.now();
+    const previo = this.ultimoDisparo[clave] ?? -Infinity;
+    if (ahora - previo < separacionMs) return false;
+    this.ultimoDisparo[clave] = ahora;
+    return true;
+  }
+
   public initCtx(): AudioContext | null {
     if (!this.ctx) {
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -21,9 +67,12 @@ class SoundFX {
   // Slide swipe sound (soft whoosh)
   playSlide() {
     if (this.isMuted) return;
+    if (!this.puedeSonar('slide', 50)) return;
     try {
       const ctx = this.initCtx();
       if (!ctx) return;
+      const salida = this.getBus();
+      if (!salida) return;
 
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -38,7 +87,7 @@ class SoundFX {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(salida);
 
       osc.start(now);
       osc.stop(now + 0.08);
@@ -62,6 +111,8 @@ class SoundFX {
     try {
       this.initCtx();
       if (!this.ctx) return;
+      const salida = this.getBus();
+      if (!salida) return;
 
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -78,7 +129,7 @@ class SoundFX {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
 
       osc.connect(gain);
-      gain.connect(this.ctx.destination);
+      gain.connect(salida);
 
       osc.start(now);
       osc.stop(now + 0.45);
@@ -93,6 +144,8 @@ class SoundFX {
     try {
       this.initCtx();
       if (!this.ctx) return;
+      const salida = this.getBus();
+      if (!salida) return;
 
       const now = this.ctx.currentTime;
       const notes = [261.63, 329.63, 392.0, 523.25]; // C4, E4, G4, C5 major arpeggio
@@ -109,7 +162,7 @@ class SoundFX {
         gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.35);
 
         osc.connect(gain);
-        gain.connect(this.ctx!.destination);
+        gain.connect(salida);
 
         osc.start(startTime);
         osc.stop(startTime + 0.35);
@@ -125,6 +178,8 @@ class SoundFX {
     try {
       this.initCtx();
       if (!this.ctx) return;
+      const salida = this.getBus();
+      if (!salida) return;
 
       const now = this.ctx.currentTime;
       const notes = [330, 440, 554.37, 659.25, 880]; // E4, A4, C#5, E5, A5 uplifting fanfare
@@ -141,7 +196,7 @@ class SoundFX {
         gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.4);
 
         osc.connect(gain);
-        gain.connect(this.ctx!.destination);
+        gain.connect(salida);
 
         osc.start(startTime);
         osc.stop(startTime + 0.4);
@@ -157,6 +212,8 @@ class SoundFX {
     try {
       this.initCtx();
       if (!this.ctx) return;
+      const salida = this.getBus();
+      if (!salida) return;
 
       const now = this.ctx.currentTime;
       const notes = [300, 260, 220, 180];
@@ -169,7 +226,7 @@ class SoundFX {
         gain.gain.setValueAtTime(0.08, startTime);
         gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.25);
         osc.connect(gain);
-        gain.connect(this.ctx!.destination);
+        gain.connect(salida);
         osc.start(startTime);
         osc.stop(startTime + 0.25);
       });
@@ -187,9 +244,12 @@ export const soundManager = new SoundFX();
  */
 export function reproducirSonidoFusionNormal(level: number = 1) {
   if (soundManager.isMuted) return;
+  if (!soundManager.puedeSonar('fusion', 60)) return;
   try {
     const ctx = soundManager.initCtx();
     if (!ctx) return;
+    const salida = soundManager.getBus();
+    if (!salida) return;
 
     const now = ctx.currentTime;
     const safeLevel = Math.max(1, Math.min(level, 10));
@@ -207,7 +267,7 @@ export function reproducirSonidoFusionNormal(level: number = 1) {
     gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
 
     osc1.connect(gain1);
-    gain1.connect(ctx.destination);
+    gain1.connect(salida);
 
     osc1.start(now);
     osc1.stop(now + 0.16);
@@ -224,7 +284,7 @@ export function reproducirSonidoFusionNormal(level: number = 1) {
     gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
 
     osc2.connect(gain2);
-    gain2.connect(ctx.destination);
+    gain2.connect(salida);
 
     osc2.start(now);
     osc2.stop(now + 0.12);
@@ -240,9 +300,14 @@ export function reproducirSonidoFusionNormal(level: number = 1) {
  */
 export function reproducirSonidoHitoLeyenda(level: number = 11) {
   if (soundManager.isMuted) return;
+  // Dura cerca de un segundo y usa once osciladores: solaparlo consigo mismo
+  // es lo que mas ensuciaba el sonido.
+  if (!soundManager.puedeSonar('hito', 500)) return;
   try {
     const ctx = soundManager.initCtx();
     if (!ctx) return;
+    const salida = soundManager.getBus();
+    if (!salida) return;
 
     const now = ctx.currentTime;
 
@@ -257,7 +322,7 @@ export function reproducirSonidoHitoLeyenda(level: number = 11) {
     subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
 
     subOsc.connect(subGain);
-    subGain.connect(ctx.destination);
+    subGain.connect(salida);
 
     subOsc.start(now);
     subOsc.stop(now + 0.5);
@@ -289,7 +354,7 @@ export function reproducirSonidoHitoLeyenda(level: number = 11) {
 
       osc.connect(filter);
       filter.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(salida);
 
       osc.start(startTime);
       osc.stop(startTime + 0.45);
@@ -312,7 +377,7 @@ export function reproducirSonidoHitoLeyenda(level: number = 11) {
       sGain.gain.exponentialRampToValueAtTime(0.001, time + 0.4);
 
       sOsc.connect(sGain);
-      sGain.connect(ctx.destination);
+      sGain.connect(salida);
 
       sOsc.start(time);
       sOsc.stop(time + 0.4);
@@ -330,7 +395,7 @@ export function reproducirSonidoHitoLeyenda(level: number = 11) {
       chordGain.gain.exponentialRampToValueAtTime(0.001, chordTime + 0.85);
 
       chordOsc.connect(chordGain);
-      chordGain.connect(ctx.destination);
+      chordGain.connect(salida);
 
       chordOsc.start(chordTime);
       chordOsc.stop(chordTime + 0.85);

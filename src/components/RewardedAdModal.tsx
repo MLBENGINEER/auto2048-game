@@ -6,8 +6,11 @@ interface RewardedAdModalProps {
   isOpen: boolean;
   score: number;
   boardSize: number;
-  onAdCompleted: () => void;
+  /** huboAnuncio distingue la revivida pagada con un anuncio de la de cortesía. */
+  onAdCompleted: (huboAnuncio: boolean) => void;
   onGameOverRestart: () => void;
+  /** Revividas de cortesía que quedan si YouTube no tiene anuncios que mostrar. */
+  revividasGratisRestantes: number;
 }
 
 export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
@@ -16,14 +19,17 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   boardSize,
   onAdCompleted,
   onGameOverRestart,
+  revividasGratisRestantes,
 }) => {
   const [isPlayingAd, setIsPlayingAd] = useState(false);
   const [noCompletado, setNoCompletado] = useState(false);
+  const [sinAnunciosNiCupo, setSinAnunciosNiCupo] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setIsPlayingAd(false);
       setNoCompletado(false);
+      setSinAnunciosNiCupo(false);
     }
   }, [isOpen]);
 
@@ -43,10 +49,22 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
       return;
     }
 
-    // 'ganada', o 'no-disponible' (sin inventario o fuera de YouTube). En el
-    // segundo caso se concede igual: no había anuncio que mostrar, así que
-    // negarle la partida al jugador no protege ningún ingreso.
-    onAdCompleted();
+    if (resultado === 'ganada') {
+      // Vio el anuncio: revive siempre, sin límite.
+      onAdCompleted(true);
+      return;
+    }
+
+    // 'no-disponible': YouTube no tiene anuncio para esta región, o estamos
+    // fuera de Playables. Se conceden unas pocas revividas de cortesía, porque
+    // no hay ingreso que proteger, pero no infinitas: con revividas ilimitadas
+    // y gratis la clasificación premiaría a quien juegue donde no hay anuncios.
+    if (revividasGratisRestantes > 0) {
+      onAdCompleted(false);
+      return;
+    }
+
+    setSinAnunciosNiCupo(true);
   };
 
   if (!isOpen) return null;
@@ -105,6 +123,15 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
               </div>
             </div>
 
+            {sinAnunciosNiCupo && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-1 text-center">
+                <p className="text-xs font-semibold text-amber-300">
+                  Ahora mismo no hay anuncios disponibles en tu zona y ya usaste
+                  tus rescates de cortesía de esta partida.
+                </p>
+              </div>
+            )}
+
             {noCompletado && (
               <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-1 text-center">
                 <p className="text-xs font-semibold text-red-300">
@@ -119,7 +146,8 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
               <button
                 id="btn-watch-rewarded-ad"
                 onClick={handleStartRewardedAd}
-                className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black rounded-xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer"
+                disabled={sinAnunciosNiCupo}
+                className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black rounded-xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:from-amber-500"
               >
                 <Play className="w-4 h-4 fill-black" />
                 <span>Ver Anuncio y Continuar Racha</span>

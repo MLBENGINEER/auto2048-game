@@ -48,6 +48,10 @@ import {
 // Hitos Clave para Celebración Masiva en Pop-up Gigante (Nivel 11: 2048, 12: 4096, 13: 8192, 14: 16384, 15: 32768, 16: 65536, 17: 131072, 18: 262144 / Modo Infinito)
 const CELEBRATION_MILESTONE_LEVELS = [11, 12, 13, 14, 15, 16, 17, 18];
 
+// Revividas que se conceden sin ver anuncio cuando YouTube no tiene ninguno que
+// mostrar en la región del jugador. Con anuncios disponibles no hay límite.
+const MAX_REVIVIDAS_SIN_ANUNCIO = 2;
+
 export default function App() {
   // Navigation tabs: 'game' o 'leaderboard'
   // Solo queda la vista de juego: la clasificación la muestra YouTube, no el
@@ -70,6 +74,10 @@ export default function App() {
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isCodexOpen, setIsCodexOpen] = useState<boolean>(false);
   const [isRewardedAdOpen, setIsRewardedAdOpen] = useState<boolean>(false);
+  // Revividas concedidas sin anuncio en la partida actual. Donde YouTube tiene
+  // inventario, cada revivida cuesta un anuncio y son ilimitadas. Donde no lo
+  // hay, se regalan solo estas para que la clasificación siga significando algo.
+  const [revividasSinAnuncio, setRevividasSinAnuncio] = useState<number>(0);
   const [isExpandedRecently, setIsExpandedRecently] = useState<boolean>(false);
   const [salvageNotice, setSalvageNotice] = useState<string | null>(null);
   const [history, setHistory] = useState<{ tiles: TileData[]; score: number; boardSize: number } | null>(null);
@@ -122,6 +130,7 @@ export default function App() {
     }
     isMovingRef.current = false;
     pendingMoveRef.current = null;
+    setRevividasSinAnuncio(0);
 
     const size = 4;
     setBoardSize(size);
@@ -300,8 +309,10 @@ export default function App() {
             setCelebrationLevel(newHighestLevel);
             setIsCelebrationOpen(true);
 
-            // Audio de celebración épica de hito
-            reproducirSonidoHitoLeyenda(newHighestLevel);
+            // El sonido de hito no se dispara aquí: más abajo, en el bloque de
+            // audio de fusiones, ya suena para este mismo movimiento. Dispararlo
+            // en los dos sitios solapaba dos veces el efecto más pesado del
+            // juego, y era buena parte del ruido al encadenar fusiones.
           } else {
             const milestoneNumber = MILESTONE_LEVELS[newHighestLevel];
             if (milestoneNumber && !reachedMilestonesRef.current.includes(newHighestLevel)) {
@@ -441,8 +452,11 @@ export default function App() {
   };
 
   // Anuncio de salvación infinita completado: elimina de forma aleatoria 4 o 5 fichas de menor nivel
-  const handleRewardedAdCompleted = () => {
+  const handleRewardedAdCompleted = (huboAnuncio: boolean) => {
     setIsRewardedAdOpen(false);
+    if (!huboAnuncio) {
+      setRevividasSinAnuncio((prev) => prev + 1);
+    }
 
     // Elimina de forma aleatoria del tablero las 4 o 5 fichas de menor nivel que estén estorbando
     const countToRemove = Math.random() < 0.5 ? 4 : 5;
@@ -1087,6 +1101,7 @@ export default function App() {
         score={score}
         boardSize={boardSize}
         onAdCompleted={handleRewardedAdCompleted}
+        revividasGratisRestantes={MAX_REVIVIDAS_SIN_ANUNCIO - revividasSinAnuncio}
         onGameOverRestart={() => {
           setIsRewardedAdOpen(false);
           setIsGameOver(true);
