@@ -8,7 +8,6 @@ coverage/
 
 # Entorno
 .env*
-!.env.example
 
 # Sistema / basura
 .DS_Store
