@@ -46,6 +46,7 @@ import {
   reproducirSonidoFusionNormal,
   reproducirSonidoHitoLeyenda,
 } from './utils/audio';
+import { preloadEvolutionImages } from './utils/preloadImages';
 
 // Hitos Clave para Celebración Masiva en Pop-up Gigante (Nivel 11: 2048, 12: 4096, 13: 8192, 14: 16384, 15: 32768, 16: 65536, 17: 131072, 18: 262144 / Modo Infinito)
 const CELEBRATION_MILESTONE_LEVELS = [11, 12, 13, 14, 15, 16, 17, 18];
@@ -97,6 +98,13 @@ export default function App() {
 
   // State refs to prevent stale closure in event listeners
   const isMovingRef = useRef(false);
+  // Direccion pulsada mientras habia un movimiento en curso. Se guarda solo la
+  // ultima: encolarlas todas haria que el tablero siguiera moviendose despues
+  // de que el jugador soltara las teclas.
+  const pendingMoveRef = useRef<Direction | null>(null);
+  // Referencia a la version mas reciente de handleMove, para poder invocarla
+  // desde dentro de su propio setTimeout sin capturar una version obsoleta.
+  const handleMoveRef = useRef<(direction: Direction) => void>(() => {});
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
   const boardSizeRef = useRef(boardSize);
@@ -117,6 +125,7 @@ export default function App() {
       moveTimeoutRef.current = null;
     }
     isMovingRef.current = false;
+    pendingMoveRef.current = null;
 
     const size = 4;
     setBoardSize(size);
@@ -152,6 +161,12 @@ export default function App() {
       }
     };
   }, [initGame]);
+
+  // Traer las imagenes de todas las evoluciones antes de que hagan falta, para
+  // que una fusion no dispare una descarga en mitad de la animacion.
+  useEffect(() => {
+    preloadEvolutionImages();
+  }, []);
 
   // Listen to interstitial / milestone event from YouTube Playables hook
   useEffect(() => {
@@ -189,7 +204,15 @@ export default function App() {
   // Main Move Handler with Fluid CSS Transition & Logical Delay
   const handleMove = useCallback(
     (direction: Direction) => {
-      if (isMovingRef.current || isGameOverRef.current || activeTab !== 'game' || isCelebrationOpen) return;
+      if (isGameOverRef.current || activeTab !== 'game' || isCelebrationOpen) return;
+
+      // Antes se descartaba la tecla y el movimiento se perdia: al encadenar
+      // fusiones rapido se sentia como un tiron. Ahora se guarda y se ejecuta
+      // en cuanto termina la animacion en curso.
+      if (isMovingRef.current) {
+        pendingMoveRef.current = direction;
+        return;
+      }
 
       const currentTiles = tilesRef.current;
       const currentSize = boardSizeRef.current;
@@ -375,11 +398,23 @@ export default function App() {
         // Solo liberar movimiento si no se abrió el pop-up de celebración
         if (!isCelebrationOpen) {
           isMovingRef.current = false;
+
+          const encolado = pendingMoveRef.current;
+          pendingMoveRef.current = null;
+          if (encolado && !isGameOverRef.current) {
+            handleMoveRef.current(encolado);
+          }
         }
       }, 150);
     },
     [score, activeTab, isCelebrationOpen]
   );
+
+  // El setTimeout de handleMove necesita invocar la version vigente de si mismo
+  // para poder ejecutar el movimiento encolado.
+  useEffect(() => {
+    handleMoveRef.current = handleMove;
+  }, [handleMove]);
 
   // Undo last move
   const handleUndo = () => {
