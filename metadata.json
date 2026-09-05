@@ -1,0 +1,6 @@
+{
+  "name": "Auto2048: Evolución Automotriz",
+  "description": "Clon avanzado, infinito y dinámico de 2048 con temática de evolución automotriz y tablero autoexpansible para YouTube Playables.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

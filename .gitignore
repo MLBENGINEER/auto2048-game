@@ -1,0 +1,17 @@
+# Dependencias
+node_modules/
+
+# Build
+dist/
+build/
+coverage/
+
+# Entorno
+.env*
+!.env.example
+
+# Sistema / basura
+.DS_Store
+Thumbs.db
+*.log
+*.zip
