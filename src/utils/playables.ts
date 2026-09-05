@@ -27,7 +27,17 @@ interface YTGame {
     requestInterstitialAd?: () => Promise<void>;
     requestRewardedAd?: (id: string) => Promise<boolean>;
   };
+  system?: {
+    onPause?: (cb: () => void) => () => void;
+    onResume?: (cb: () => void) => () => void;
+    isAudioEnabled?: () => boolean;
+    onAudioEnabledChange?: (cb: (activado: boolean) => void) => () => void;
+  };
 }
+
+/** Función para cancelar una suscripción. No hacer nada es un cancelador válido. */
+type Cancelar = () => void;
+const SIN_SUSCRIPCION: Cancelar = () => {};
 
 function sdk(): YTGame | undefined {
   return (globalThis as { ytgame?: YTGame }).ytgame;
@@ -70,12 +80,18 @@ export async function enviarPuntuacion(valor: number): Promise<void> {
   }
 }
 
-/** Guarda estado en YouTube. Máximo 3 MiB. */
+/**
+ * Guarda estado en YouTube. Máximo 3 MiB.
+ *
+ * Ojo con la forma de llamar: los métodos del SDK usan `this`, así que hay que
+ * invocarlos sobre su objeto. Extraerlos a una variable y llamarlos sueltos
+ * lanza, y el fallo queda enmascarado por el catch.
+ */
 export async function guardarDatos(datos: string): Promise<boolean> {
+  const api = sdk();
+  if (!api?.game?.saveData) return false;
   try {
-    const fn = sdk()?.game?.saveData;
-    if (!fn) return false;
-    await fn(datos);
+    await api.game.saveData(datos);
     return true;
   } catch {
     return false;
@@ -84,10 +100,10 @@ export async function guardarDatos(datos: string): Promise<boolean> {
 
 /** Recupera el estado guardado. Devuelve null si no hay o si falla. */
 export async function cargarDatos(): Promise<string | null> {
+  const api = sdk();
+  if (!api?.game?.loadData) return null;
   try {
-    const fn = sdk()?.game?.loadData;
-    if (!fn) return null;
-    const datos = await fn();
+    const datos = await api.game.loadData();
     return typeof datos === 'string' && datos.length > 0 ? datos : null;
   } catch {
     return null;
@@ -125,12 +141,69 @@ export type ResultadoRecompensa = 'ganada' | 'no-ganada' | 'no-disponible';
  * recompensa concedida. No debe contener datos del usuario.
  */
 export async function anuncioRecompensa(id: string): Promise<ResultadoRecompensa> {
-  const fn = sdk()?.ads?.requestRewardedAd;
-  if (!fn) return 'no-disponible';
+  const api = sdk();
+  if (!api?.ads?.requestRewardedAd) return 'no-disponible';
   try {
-    return (await fn(id)) === true ? 'ganada' : 'no-ganada';
+    return (await api.ads.requestRewardedAd(id)) === true ? 'ganada' : 'no-ganada';
   } catch {
     // El SDK lanza cuando no hay inventario para este usuario o region.
     return 'no-disponible';
+  }
+}
+
+/**
+ * YouTube pausa el juego cuando el usuario sale, cambia de pestaña o abre otra
+ * cosa. Se llama en todas las pausas, incluida la salida definitiva, y no hay
+ * ninguna garantía de que el juego vuelva a reanudarse: es el momento de
+ * guardar, no de suponer que habrá un después.
+ */
+export function alPausar(cb: () => void): Cancelar {
+  try {
+    return sdk()?.system?.onPause?.(cb) ?? SIN_SUSCRIPCION;
+  } catch {
+    return SIN_SUSCRIPCION;
+  }
+}
+
+/** Se dispara al volver de una pausa, si es que vuelve. */
+export function alReanudar(cb: () => void): Cancelar {
+  try {
+    return sdk()?.system?.onResume?.(cb) ?? SIN_SUSCRIPCION;
+  } catch {
+    return SIN_SUSCRIPCION;
+  }
+}
+
+/**
+ * Estado del audio según los ajustes de YouTube, no del juego.
+ * Fuera de Playables se asume permitido, que es lo que ocurre en cualquier
+ * navegador normal.
+ */
+export function audioPermitido(): boolean {
+  // Fuera de YouTube el ajuste no significa nada y el SDK no es fiable: se
+  // asume permitido, que es como se comporta cualquier navegador.
+  if (!enPlayables()) return true;
+  const api = sdk();
+  if (!api?.system?.isAudioEnabled) return true;
+  try {
+    return api.system.isAudioEnabled();
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Avisa cuando el usuario cambia el sonido desde los controles de YouTube.
+ * La documentación lo marca como obligatorio: el juego DEBE reaccionar a esto.
+ */
+export function alCambiarAudio(cb: (activado: boolean) => void): Cancelar {
+  // Fuera de Playables esta suscripcion avisa de inmediato con `false`, aunque
+  // isAudioEnabled() diga lo contrario. Obedecerla dejaba el juego mudo en
+  // GitHub Pages, asi que solo se escucha dentro de YouTube.
+  if (!enPlayables()) return SIN_SUSCRIPCION;
+  try {
+    return sdk()?.system?.onAudioEnabledChange?.(cb) ?? SIN_SUSCRIPCION;
+  } catch {
+    return SIN_SUSCRIPCION;
   }
 }

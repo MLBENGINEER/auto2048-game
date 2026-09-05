@@ -6,6 +6,13 @@ class SoundFX {
   public isMuted: boolean = false;
 
   /**
+   * Verdadero mientras YouTube tiene el juego pausado. Sin esta bandera,
+   * initCtx() reanudaria el contexto en el siguiente sonido y la pausa no
+   * serviria de nada.
+   */
+  private pausado: boolean = false;
+
+  /**
    * Bus maestro por el que pasa todo el audio.
    *
    * Antes cada oscilador se conectaba directo a ctx.destination, asi que al
@@ -17,6 +24,30 @@ class SoundFX {
 
   /** Marcas de tiempo del ultimo disparo de cada sonido, para no solaparlos. */
   private ultimoDisparo: Record<string, number> = {};
+
+  /** Corta todo el sonido en curso. Se usa cuando YouTube pausa el juego. */
+  public suspender(): void {
+    this.pausado = true;
+    try {
+      if (this.ctx && this.ctx.state === 'running') {
+        void this.ctx.suspend();
+      }
+    } catch {
+      /* si el navegador no deja suspender, no hay nada que hacer */
+    }
+  }
+
+  /** Devuelve el audio tras una pausa de YouTube. */
+  public reanudar(): void {
+    this.pausado = false;
+    try {
+      if (this.ctx && this.ctx.state === 'suspended') {
+        void this.ctx.resume();
+      }
+    } catch {
+      /* idem */
+    }
+  }
 
   public getBus(): AudioNode | null {
     const ctx = this.initCtx();
@@ -58,7 +89,7 @@ class SoundFX {
         this.ctx = new AudioContextClass();
       }
     }
-    if (this.ctx && this.ctx.state === 'suspended') {
+    if (this.ctx && this.ctx.state === 'suspended' && !this.pausado) {
       this.ctx.resume().catch(() => {});
     }
     return this.ctx;

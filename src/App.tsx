@@ -43,6 +43,10 @@ import {
   guardarDatos,
   cargarDatos,
   anuncioIntersticial,
+  alPausar,
+  alReanudar,
+  audioPermitido,
+  alCambiarAudio,
 } from './utils/playables';
 
 // Hitos Clave para Celebración Masiva en Pop-up Gigante (Nivel 11: 2048, 12: 4096, 13: 8192, 14: 16384, 15: 32768, 16: 65536, 17: 131072, 18: 262144 / Modo Infinito)
@@ -71,7 +75,10 @@ export default function App() {
   });
   const [highestLevelUnlocked, setHighestLevelUnlocked] = useState<number>(1);
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
+  // Silencio elegido por el jugador dentro del juego.
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  // Ajuste de sonido de YouTube, que manda por encima del anterior.
+  const [audioDeYouTube, setAudioDeYouTube] = useState<boolean>(true);
   const [isCodexOpen, setIsCodexOpen] = useState<boolean>(false);
   const [isRewardedAdOpen, setIsRewardedAdOpen] = useState<boolean>(false);
   // Revividas concedidas sin anuncio en la partida actual. Donde YouTube tiene
@@ -101,6 +108,9 @@ export default function App() {
   // YouTube Playables ad simulation state
 
   // State refs to prevent stale closure in event listeners
+  // El récord vigente, accesible desde los callbacks de YouTube, que se
+  // registran una sola vez y no verían el valor del estado.
+  const bestScoreRef = useRef(0);
   const isMovingRef = useRef(false);
   // Direccion pulsada mientras habia un movimiento en curso. Se guarda solo la
   // ultima: encolarlas todas haria que el tablero siguiera moviendose despues
@@ -177,6 +187,45 @@ export default function App() {
   useEffect(() => {
     primerFotogramaListo();
     juegoListo();
+  }, []);
+
+  // Un único punto de sincronización del récord con su ref. Hacerlo solo al
+  // batirlo dejaba el ref en cero durante toda la sesión de quien no mejora su
+  // marca, y la pausa habría guardado ese cero encima del récord real.
+  useEffect(() => {
+    bestScoreRef.current = bestScore;
+  }, [bestScore]);
+
+  // El silencio real combina las dos fuentes: si YouTube corta el audio, manda
+  // YouTube; si no, decide el botón del juego.
+  useEffect(() => {
+    soundManager.isMuted = isMuted || !audioDeYouTube;
+  }, [isMuted, audioDeYouTube]);
+
+  // YouTube es quien manda sobre el sonido. La documentación marca
+  // onAudioEnabledChange como obligatorio.
+  useEffect(() => {
+    setAudioDeYouTube(audioPermitido());
+    return alCambiarAudio((activado) => setAudioDeYouTube(activado));
+  }, []);
+
+  // Pausa y reanudación. onPause salta también cuando el jugador se va del
+  // juego y no hay garantía de que vuelva, así que se aprovecha para guardar.
+  useEffect(() => {
+    const cancelarPausa = alPausar(() => {
+      soundManager.suspender();
+      pendingMoveRef.current = null;
+      if (bestScoreRef.current > 0) {
+        void guardarDatos(JSON.stringify({ best: bestScoreRef.current }));
+      }
+    });
+    const cancelarReanudacion = alReanudar(() => {
+      soundManager.reanudar();
+    });
+    return () => {
+      cancelarPausa();
+      cancelarReanudacion();
+    };
   }, []);
 
   // El record vive en YouTube cuando el SDK esta disponible, para que siga al
@@ -911,9 +960,7 @@ export default function App() {
             <button
               id="btn-toggle-sound"
               onClick={() => {
-                const nextMuted = !isMuted;
-                setIsMuted(nextMuted);
-                soundManager.isMuted = nextMuted;
+                setIsMuted((prev) => !prev);
               }}
               className="p-2 rounded-lg bg-white/[0.05] border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition"
               title={isMuted ? 'Activar sonido' : 'Silenciar'}
