@@ -14,9 +14,14 @@ interface YTGame {
   game?: {
     firstFrameReady?: () => void;
     gameReady?: () => void;
-    sendScore?: (score: { value: number }) => Promise<void>;
     saveData?: (data: string) => Promise<void>;
     loadData?: () => Promise<string>;
+  };
+  // Verificado contra el SDK real (v1.20260831): sendScore cuelga de
+  // engagement, no de game. Puesto en game fallaba en silencio y la
+  // puntuacion nunca llegaba a YouTube.
+  engagement?: {
+    sendScore?: (score: { value: number }) => Promise<void>;
   };
   ads?: {
     requestInterstitialAd?: () => Promise<void>;
@@ -59,7 +64,7 @@ export async function enviarPuntuacion(valor: number): Promise<void> {
   const entero = Math.floor(valor);
   if (!Number.isFinite(entero) || entero < 0 || entero > Number.MAX_SAFE_INTEGER) return;
   try {
-    await sdk()?.game?.sendScore?.({ value: entero });
+    await sdk()?.engagement?.sendScore?.({ value: entero });
   } catch {
     /* si falla, la partida sigue igual */
   }
