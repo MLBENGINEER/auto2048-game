@@ -15,7 +15,6 @@ import {
   Flame,
   Gamepad2,
   CheckCircle2,
-  Image as ImageIcon,
 } from 'lucide-react';
 import { TileData, Direction } from './types/game';
 import {
@@ -31,7 +30,6 @@ import {
 import { EVOLUTION_LEVELS, getEvolutionByLevel, MILESTONE_LEVELS } from './constants/evolutions';
 import { GameBoard } from './components/GameBoard';
 import { CodexModal } from './components/CodexModal';
-import { AssetManagerModal } from './components/AssetManagerModal';
 import {
   LeaderboardModal,
   calculateGlobalRank,
@@ -70,7 +68,6 @@ export default function App() {
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isCodexOpen, setIsCodexOpen] = useState<boolean>(false);
-  const [isAssetModalOpen, setIsAssetModalOpen] = useState<boolean>(false);
   const [isLeaderboardModalOpen, setIsLeaderboardModalOpen] = useState<boolean>(false);
   const [isRewardedAdOpen, setIsRewardedAdOpen] = useState<boolean>(false);
   const [isExpandedRecently, setIsExpandedRecently] = useState<boolean>(false);
@@ -920,15 +917,6 @@ export default function App() {
           {/* Quick Action Toolbar */}
           <div className="flex items-center gap-1.5 ml-1 sm:ml-2">
             <button
-              id="btn-open-assets"
-              onClick={() => setIsAssetModalOpen(true)}
-              className="p-2 rounded-lg bg-white/[0.05] border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition"
-              title="Galería y Fotos de Autos"
-            >
-              <ImageIcon className="w-4 h-4 text-sky-400" />
-            </button>
-
-            <button
               id="btn-open-codex"
               onClick={() => setIsCodexOpen(true)}
               className="p-2 rounded-lg bg-white/[0.05] border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition"
@@ -1346,12 +1334,6 @@ export default function App() {
         isOpen={isCodexOpen}
         onClose={() => setIsCodexOpen(false)}
         highestLevelUnlocked={highestLevelUnlocked}
-      />
-
-      {/* Asset Manager / Car Photos Modal */}
-      <AssetManagerModal
-        isOpen={isAssetModalOpen}
-        onClose={() => setIsAssetModalOpen(false)}
       />
 
       {/* YouTube Playables Interstitial Simulation Banner */}
