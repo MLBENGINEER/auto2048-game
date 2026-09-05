@@ -4,7 +4,7 @@ import { getEvolutionByLevel, MILESTONE_LEVELS } from '../constants/evolutions';
 import { EvolutionIcon } from './EvolutionIcon';
 import { getCustomImageSync } from '../utils/customImages';
 import { cleanImageFilename, getVehicleImageUrl, getVehicleImageFallbackUrl } from '../utils/imagePath';
-import { ejecutarAnuncioYouTube } from '../game/engine';
+import { anuncioIntersticial } from '../utils/playables';
 
 interface MilestoneCelebrationModalProps {
   isOpen: boolean;
@@ -30,8 +30,6 @@ export const MilestoneCelebrationModal: React.FC<MilestoneCelebrationModalProps>
   onCompleted,
 }) => {
   const [adPlaying, setAdPlaying] = useState(false);
-  const [countdown, setCountdown] = useState(3);
-  const [adProgress, setAdProgress] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
 
   const evolution = getEvolutionByLevel(level);
@@ -46,8 +44,6 @@ export const MilestoneCelebrationModal: React.FC<MilestoneCelebrationModalProps>
   useEffect(() => {
     if (isOpen) {
       setAdPlaying(false);
-      setCountdown(3);
-      setAdProgress(0);
       setImgFailed(false);
     }
   }, [isOpen, level]);
@@ -105,41 +101,14 @@ export const MilestoneCelebrationModal: React.FC<MilestoneCelebrationModalProps>
     return result;
   }, []);
 
-  // Transición hacia el Anuncio Obligatorio de 3 segundos
-  const handleContinueClick = () => {
+  // El hito es una pausa natural: buen momento para el intersticial. Lo dibuja
+  // YouTube por encima del juego, asi que aqui solo se espera al resultado.
+  // Si no hay anuncio disponible, la promesa resuelve igual y se continua.
+  const handleContinueClick = async () => {
     setAdPlaying(true);
-    setCountdown(3);
-    setAdProgress(0);
-
-    // Detonar automáticamente la función obligatoria requerida
-    ejecutarAnuncioYouTube({
-      type: 'milestone',
-      level,
-      milestoneValue,
-      title: 'YouTube Playables • Anuncio Obligatorio por Hito (3s)',
-      timestamp: Date.now(),
-    });
-
-    const duration = 3000;
-    const interval = 50;
-    let elapsed = 0;
-
-    const timer = setInterval(() => {
-      elapsed += interval;
-      const pct = Math.min(100, Math.round((elapsed / duration) * 100));
-      setAdProgress(pct);
-
-      const rem = Math.max(0, 3 - Math.floor(elapsed / 1000));
-      setCountdown(rem);
-
-      if (elapsed >= duration) {
-        clearInterval(timer);
-        setTimeout(() => {
-          setAdPlaying(false);
-          onCompleted();
-        }, 250);
-      }
-    }, interval);
+    await anuncioIntersticial();
+    setAdPlaying(false);
+    onCompleted();
   };
 
   if (!isOpen) return null;
@@ -302,85 +271,13 @@ export const MilestoneCelebrationModal: React.FC<MilestoneCelebrationModalProps>
             </button>
           </div>
         ) : (
-          /* VISTA B: COMERCIAL OBLIGATORIO DE 3 SEGUNDOS DE YOUTUBE */
-          <div className="w-full max-w-md bg-[var(--bg-surface)] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
-            {/* Ambient Top Glow */}
+          /* Espera breve mientras YouTube decide si hay anuncio que mostrar */
+          <div className="w-full max-w-md bg-[var(--bg-surface)] border border-white/10 rounded-3xl p-8 shadow-2xl text-center animate-in zoom-in-95 duration-200">
             <div
-              className="absolute -top-16 -right-16 w-36 h-36 rounded-full blur-3xl pointer-events-none opacity-40"
-              style={{ backgroundColor: evolution.accentColor }}
+              className="w-12 h-12 mx-auto rounded-full border-2 border-t-transparent animate-spin mb-4"
+              style={{ borderColor: evolution.accentColor, borderTopColor: 'transparent' }}
             />
-
-            {/* Header del Comercial */}
-            <div className="flex items-center justify-between mb-5 relative z-10">
-              <div className="flex items-center gap-2 bg-red-500/15 text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider">
-                <Tv className="w-4 h-4" />
-                <span>YouTube Playables • Comercial</span>
-              </div>
-              <span className="text-xs font-theme-mono text-zinc-400">
-                Transición a partida
-              </span>
-            </div>
-
-            {/* Contenido del anuncio simulado */}
-            <div className="text-center py-4 relative z-10">
-              <div
-                className="w-20 h-20 mx-auto rounded-2xl border-2 flex items-center justify-center overflow-hidden mb-4 shadow-xl"
-                style={{ borderColor: evolution.accentColor }}
-              >
-                {!imgFailed && activeSrc ? (
-                  <img
-                    src={activeSrc}
-                    alt={evolution.name}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      const current = e.currentTarget.getAttribute('src') || '';
-                      const fallback = getVehicleImageFallbackUrl(cleanImg);
-                      if (!current.includes('assets/')) {
-                        e.currentTarget.src = fallback;
-                      }
-                    }}
-                  />
-                ) : (
-                  <EvolutionIcon level={level} className="w-12 h-12" />
-                )}
-              </div>
-
-              <h2 className="text-xl font-black text-white uppercase tracking-tight">
-                ejecutarAnuncioYouTube()
-              </h2>
-              <p className="text-xs text-zinc-400 mt-1">
-                Comercial de hito para <strong className="text-amber-300">{evolution.name}</strong>
-              </p>
-            </div>
-
-            {/* Barra de Progreso de 3 Segundos */}
-            <div className="bg-black/60 border border-white/10 rounded-2xl p-4 my-3 relative z-10">
-              <div className="flex items-center justify-between text-xs font-theme-mono text-zinc-400 mb-2">
-                <span className="text-emerald-400 font-bold flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  Transmitiendo anuncio...
-                </span>
-                <span className="font-bold text-white text-sm">
-                  {countdown > 0 ? `${countdown}s` : 'Completado'}
-                </span>
-              </div>
-
-              <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden border border-white/5">
-                <div
-                  className="h-full bg-gradient-to-r from-red-500 via-amber-400 to-emerald-400 transition-all duration-75 rounded-full"
-                  style={{ width: `${adProgress}%` }}
-                />
-              </div>
-
-              <p className="text-[10px] text-zinc-500 mt-2.5 font-theme-mono">
-                ytgame.ads.requestInterstitialAd() • Reanudando juego al finalizar...
-              </p>
-            </div>
-
-            <div className="mt-4 flex items-center justify-center gap-2 text-xs text-zinc-400">
-              <CheckCircle2 className="w-4 h-4 text-amber-400" />
-              <span>El juego volverá a la normalidad automáticamente</span>
-            </div>
+            <p className="text-sm font-bold text-white">Preparando la siguiente partida...</p>
           </div>
         )}
       </div>

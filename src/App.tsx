@@ -22,22 +22,13 @@ import {
   createRandomTile,
   getEmptyCells,
   checkHasAvailableMoves,
-  ejecutarAnuncioYouTube,
   getRequiredGridSize,
   removeLowestTilesRandomly,
-  YouTubeAdTriggerDetail,
 } from './game/engine';
 import { EVOLUTION_LEVELS, getEvolutionByLevel, MILESTONE_LEVELS } from './constants/evolutions';
 import { GameBoard } from './components/GameBoard';
 import { CodexModal } from './components/CodexModal';
-import {
-  LeaderboardModal,
-  calculateGlobalRank,
-  BASE_TOP_10_LEADERBOARD,
-  LeaderboardEntry,
-} from './components/LeaderboardModal';
 import { RewardedAdModal } from './components/RewardedAdModal';
-import { YouTubeAdBanner, YouTubeAdEvent } from './components/YouTubeAdBanner';
 import { MilestoneCelebrationModal } from './components/MilestoneCelebrationModal';
 import {
   soundManager,
@@ -45,13 +36,23 @@ import {
   reproducirSonidoHitoLeyenda,
 } from './utils/audio';
 import { preloadEvolutionImages } from './utils/preloadImages';
+import {
+  primerFotogramaListo,
+  juegoListo,
+  enviarPuntuacion,
+  guardarDatos,
+  cargarDatos,
+  anuncioIntersticial,
+} from './utils/playables';
 
 // Hitos Clave para Celebración Masiva en Pop-up Gigante (Nivel 11: 2048, 12: 4096, 13: 8192, 14: 16384, 15: 32768, 16: 65536, 17: 131072, 18: 262144 / Modo Infinito)
 const CELEBRATION_MILESTONE_LEVELS = [11, 12, 13, 14, 15, 16, 17, 18];
 
 export default function App() {
   // Navigation tabs: 'game' o 'leaderboard'
-  const [activeTab, setActiveTab] = useState<'game' | 'leaderboard'>('game');
+  // Solo queda la vista de juego: la clasificación la muestra YouTube, no el
+  // juego, porque el SDK permite enviar puntuaciones pero no leerlas.
+  const [activeTab, setActiveTab] = useState<'game'>('game');
 
   // Game states
   const [boardSize, setBoardSize] = useState<number>(4); // Estrictamente 4x4 al inicio
@@ -68,7 +69,6 @@ export default function App() {
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isCodexOpen, setIsCodexOpen] = useState<boolean>(false);
-  const [isLeaderboardModalOpen, setIsLeaderboardModalOpen] = useState<boolean>(false);
   const [isRewardedAdOpen, setIsRewardedAdOpen] = useState<boolean>(false);
   const [isExpandedRecently, setIsExpandedRecently] = useState<boolean>(false);
   const [salvageNotice, setSalvageNotice] = useState<string | null>(null);
@@ -91,7 +91,6 @@ export default function App() {
   reachedMilestonesRef.current = reachedMilestones;
 
   // YouTube Playables ad simulation state
-  const [ytAdEvent, setYtAdEvent] = useState<YouTubeAdEvent | null>(null);
 
   // State refs to prevent stale closure in event listeners
   const isMovingRef = useRef(false);
@@ -165,37 +164,47 @@ export default function App() {
     preloadEvolutionImages();
   }, []);
 
-  // Listen to interstitial / milestone event from YouTube Playables hook
+  // Handshake obligatorio con YouTube Playables. Fuera de YouTube no hace nada.
   useEffect(() => {
-    const handleYtAd = (e: Event) => {
-      const customEvent = e as CustomEvent<YouTubeAdTriggerDetail>;
-      if (customEvent.detail) {
-        const detail = customEvent.detail;
-        if (detail.type === 'milestone' || detail.type === 'expansion') {
-          setYtAdEvent({
-            type: detail.type,
-            level: detail.level || highestLevelUnlocked,
-            milestoneValue: detail.milestoneValue,
-            newSize: detail.newSize,
-            timestamp: detail.timestamp,
-          });
-        }
-      }
-    };
-    window.addEventListener('youtube-ad-triggered', handleYtAd);
-    return () => window.removeEventListener('youtube-ad-triggered', handleYtAd);
-  }, [highestLevelUnlocked]);
+    primerFotogramaListo();
+    juegoListo();
+  }, []);
 
-  // Update best score in localStorage
+  // El record vive en YouTube cuando el SDK esta disponible, para que siga al
+  // jugador entre dispositivos. localStorage queda como respaldo local.
   useEffect(() => {
-    if (score > bestScore) {
-      setBestScore(score);
+    let cancelado = false;
+    (async () => {
+      const guardado = await cargarDatos();
+      if (cancelado || !guardado) return;
       try {
-        localStorage.setItem('auto2048_best', score.toString());
+        const { best } = JSON.parse(guardado) as { best?: number };
+        if (typeof best === 'number' && Number.isFinite(best)) {
+          setBestScore((prev) => Math.max(prev, best));
+        }
       } catch {
-        // ignore
+        // dato corrupto: se ignora y manda el respaldo local
       }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  // El record se guarda en los dos sitios y se publica en la clasificacion de
+  // YouTube, que es la unica real: el SDK permite enviar puntuaciones pero no
+  // leerlas, asi que el ranking lo muestra YouTube en su propia interfaz.
+  useEffect(() => {
+    if (score <= bestScore) return;
+
+    setBestScore(score);
+    try {
+      localStorage.setItem('auto2048_best', score.toString());
+    } catch {
+      // modo privado o almacenamiento lleno: no es critico
     }
+    void guardarDatos(JSON.stringify({ best: score }));
+    void enviarPuntuacion(score);
   }, [score, bestScore]);
 
   // Main Move Handler with Fluid CSS Transition & Logical Delay
@@ -306,14 +315,10 @@ export default function App() {
                 return nextList;
               });
 
-              // Detonar anuncio intersticial por hito con pausa de 3 segundos
-              ejecutarAnuncioYouTube({
-                type: 'milestone',
-                level: newHighestLevel,
-                milestoneValue: milestoneNumber,
-                title: `¡Hito Alcanzado: ${milestoneNumber}!`,
-                timestamp: Date.now(),
-              });
+              // Anuncio intersticial real de YouTube en la pausa del hito.
+              // Lo dibuja YouTube por encima del juego; si no hay inventario
+              // para este usuario, la promesa resuelve igual y no pasa nada.
+              void anuncioIntersticial();
             }
           }
         }
@@ -330,8 +335,8 @@ export default function App() {
           setIsExpandedRecently(true);
           soundManager.playBoardExpansion();
 
-          // Notificar expansión a YouTube Playables
-          ejecutarAnuncioYouTube(nextSize, currentMaxOnBoard);
+          // La expansión de tablero es otra pausa natural del juego.
+          void anuncioIntersticial();
 
           setTimeout(() => {
             setIsExpandedRecently(false);
@@ -379,16 +384,9 @@ export default function App() {
           isGameOverRef.current = true;
           soundManager.playGameOver();
 
-          // Detonar hook de YouTube Playables en Game Over
-          ejecutarAnuncioYouTube({
-            type: 'gameover',
-            level: newHighestLevel,
-            score: score + movePlan.scoreGained,
-            title: 'Game Over - Lógica de Salvación de Cochera',
-            timestamp: Date.now(),
-          });
-
-          // MONETIZACIÓN INFINITA: Siempre ofrecer anuncio de rescate sin restricción de 1 uso
+          // Aquí no se pide intersticial: la monetización del game over es el
+          // anuncio con recompensa para revivir, y encadenar dos seguidos
+          // molesta al jugador.
           setIsRewardedAdOpen(true);
         }
 
@@ -809,30 +807,7 @@ export default function App() {
   };
 
   // Cálculo inverso de posición global
-  const currentRank = calculateGlobalRank(score);
-  const bestRank = calculateGlobalRank(bestScore);
   const currentEvolution = getEvolutionByLevel(highestLevelUnlocked);
-
-  // Preparar lista de Top 10 para la pestaña visible
-  const maxScore = Math.max(score, bestScore);
-  let globalTop10: LeaderboardEntry[] = [...BASE_TOP_10_LEADERBOARD];
-
-  if (maxScore >= 51800) {
-    const userEntry: LeaderboardEntry = {
-      rank: bestRank,
-      name: 'Tú (Récord Personal)',
-      country: 'Tu Cochera',
-      flag: '⭐',
-      score: maxScore,
-      maxLevel: highestLevelUnlocked,
-      isUser: true,
-    };
-
-    globalTop10 = [...BASE_TOP_10_LEADERBOARD, userEntry]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10)
-      .map((item, idx) => ({ ...item, rank: idx + 1 }));
-  }
 
   return (
     <div
@@ -856,34 +831,6 @@ export default function App() {
         </div>
 
         {/* Pestañas de Navegación Visibles: Tablero vs Clasificación Global */}
-        <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/10">
-          <button
-            id="tab-btn-game"
-            onClick={() => setActiveTab('game')}
-            className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 ${
-              activeTab === 'game'
-                ? 'bg-[var(--accent)] text-black shadow-sm'
-                : 'text-[var(--text-dim)] hover:text-white'
-            }`}
-          >
-            <Gamepad2 className="w-3.5 h-3.5" />
-            <span>Juego</span>
-          </button>
-
-          <button
-            id="tab-btn-leaderboard"
-            onClick={() => setActiveTab('leaderboard')}
-            className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 ${
-              activeTab === 'leaderboard'
-                ? 'bg-[var(--accent)] text-black shadow-sm'
-                : 'text-[var(--text-dim)] hover:text-white'
-            }`}
-          >
-            <Trophy className="w-3.5 h-3.5" />
-            <span>Clasificación Global</span>
-          </button>
-        </div>
-
         {/* Stats Container */}
         <div className="stats-container flex items-center gap-2 sm:gap-3 flex-wrap">
           <div
@@ -977,30 +924,6 @@ export default function App() {
         <div className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-8 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
           {/* Sidebar: Ranking Status + Evolution Guide */}
           <aside className="hidden lg:flex flex-col gap-4">
-            {/* Widget de Posición Global Dinámica */}
-            <div
-              id="sidebar-ranking-widget"
-              onClick={() => setActiveTab('leaderboard')}
-              className="bg-black/30 border border-white/10 rounded-xl p-4 cursor-pointer hover:border-[var(--accent)]/50 transition group"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] uppercase font-bold text-[var(--accent)] tracking-wider flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5 text-[var(--accent)]" />
-                  <span>Tu Puesto Global</span>
-                </span>
-                <span className="text-[10px] text-zinc-500 group-hover:text-zinc-300 transition">
-                  Ver Clasificación →
-                </span>
-              </div>
-              <div className="text-xl font-extrabold font-theme-mono text-white tracking-tight">
-                #{currentRank.toLocaleString()}
-              </div>
-              <div className="text-[11px] text-[var(--text-dim)] mt-1 flex items-center gap-1">
-                <Flame className="w-3 h-3 text-amber-500" />
-                <span>Calculado en tiempo real según tu puntaje</span>
-              </div>
-            </div>
-
             {/* Guía de Evolución Automotriz */}
             <div className="evolution-guide bg-white/[0.03] rounded-xl p-4 border border-white/10 shadow-sm">
               <div className="guide-title text-xs font-extrabold uppercase tracking-wider text-[var(--accent)] mb-3 border-b border-white/10 pb-2 flex items-center justify-between">
@@ -1052,22 +975,6 @@ export default function App() {
 
           {/* Arena Central de Juego */}
           <main className="flex flex-col items-center justify-center w-full relative">
-            {/* Banner de Posición Global en Móvil */}
-            <div
-              onClick={() => setActiveTab('leaderboard')}
-              className="w-full max-w-[500px] flex items-center justify-between mb-2 text-xs text-[var(--text-dim)] bg-white/[0.02] border border-white/5 px-3 py-1.5 rounded-lg cursor-pointer hover:border-[var(--accent)]/40 transition"
-            >
-              <div className="flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-[var(--accent)]" />
-                <span>
-                  Tu Puesto Global: <strong className="text-white font-theme-mono">#{currentRank.toLocaleString()}</strong>
-                </span>
-              </div>
-              <span className="text-[10px] uppercase tracking-wider text-[var(--accent)] font-bold">
-                Ver Top 10 →
-              </span>
-            </div>
-
             {/* Tablero Minimalista (100% LIMPIEZA VISUAL: CERO TEXTOS EN FICHAS) */}
             <div className="w-full max-w-[500px] relative mx-auto">
               <GameBoard
@@ -1098,8 +1005,8 @@ export default function App() {
                       <span className="font-bold text-[var(--accent)]">{score.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between text-[var(--text-dim)]">
-                      <span>Puesto Global:</span>
-                      <span className="font-bold text-white">#{currentRank.toLocaleString()}</span>
+                      <span>Récord:</span>
+                      <span className="font-bold text-white">{bestScore.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between text-[var(--text-dim)]">
                       <span>Mayor Hito:</span>
@@ -1174,148 +1081,6 @@ export default function App() {
       )}
 
       {/* VISTA 2: SECCIÓN VISIBLE DE CLASIFICACIÓN GLOBAL (TOP 10 DE 50,000 A 500,000 PTS) */}
-      {activeTab === 'leaderboard' && (
-        <div className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-8 py-6 flex flex-col gap-6">
-          {/* Banner de Posición Global Dinámica Inversa */}
-          <div className="bg-gradient-to-r from-amber-500/15 via-black/40 to-amber-500/10 border border-white/10 rounded-2xl p-6 shadow-xl">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <span className="text-xs uppercase font-bold text-[var(--accent)] tracking-wider flex items-center gap-1.5 mb-1">
-                  <Globe className="w-4 h-4 text-amber-500" />
-                  <span>Tu Puesto Global en Vivo</span>
-                </span>
-                <h2 className="text-3xl sm:text-4xl font-extrabold font-theme-mono text-white tracking-tight">
-                  #{currentRank.toLocaleString()}
-                </h2>
-                <p className="text-xs text-[var(--text-dim)] mt-1">
-                  Calculado dinámicamente con tu puntaje de <strong className="text-white font-theme-mono">{score.toLocaleString()} pts</strong> (Récord: <strong className="text-[var(--accent)] font-theme-mono">{bestScore.toLocaleString()} pts</strong>).
-                </p>
-              </div>
-
-              <div className="bg-black/50 border border-white/10 rounded-xl p-4 text-center min-w-[140px]">
-                <span className="text-[10px] uppercase font-bold text-[var(--text-dim)] block mb-1">
-                  Objetivo Top 10
-                </span>
-                <span className="text-lg font-extrabold font-theme-mono text-[var(--accent)]">
-                  51,800 pts
-                </span>
-                <span className="text-[10px] text-zinc-500 block mt-0.5">
-                  para clasificar
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Tabla Visible Top 10 Mundial */}
-          <div className="bg-[var(--bg-surface)] border border-white/10 rounded-2xl p-5 sm:p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
-              <div className="flex items-center gap-2.5">
-                <Trophy className="w-5 h-5 text-amber-400" />
-                <h3 className="text-lg font-bold text-white uppercase tracking-tight">
-                  Top 10 Mundial (50,000 a 500,000 Pts)
-                </h3>
-              </div>
-              <span className="text-xs font-theme-mono text-[var(--text-dim)]">
-                {globalTop10.length} pilotos clasificados
-              </span>
-            </div>
-
-            <div className="space-y-2.5">
-              {globalTop10.map((player) => {
-                const isUser = player.isUser;
-                const isTop3 = player.rank <= 3;
-                const evo = getEvolutionByLevel(player.maxLevel);
-
-                return (
-                  <div
-                    key={`${player.rank}-${player.name}`}
-                    className={`flex items-center justify-between p-3.5 rounded-xl border transition ${
-                      isUser
-                        ? 'bg-amber-500/20 border-amber-400 ring-2 ring-amber-400/40 shadow-lg'
-                        : isTop3
-                        ? 'bg-amber-500/5 border-amber-500/30'
-                        : 'bg-black/30 border-white/5'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      <div
-                        className={`w-8 h-8 rounded-lg font-theme-mono font-extrabold text-xs flex items-center justify-center shrink-0 ${
-                          player.rank === 1
-                            ? 'bg-amber-400 text-black shadow-md'
-                            : player.rank === 2
-                            ? 'bg-zinc-300 text-black'
-                            : player.rank === 3
-                            ? 'bg-amber-700 text-white'
-                            : isUser
-                            ? 'bg-amber-500 text-black font-bold'
-                            : 'bg-white/5 text-[var(--text-dim)] border border-white/5'
-                        }`}
-                      >
-                        {player.rank === 1 ? <Trophy className="w-4 h-4" /> : `#${player.rank}`}
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-sm sm:text-base font-bold truncate ${isUser ? 'text-[var(--accent)] font-extrabold' : 'text-white'}`}>
-                            {player.name}
-                          </span>
-                          <span className="text-sm" title={player.country}>
-                            {player.flag}
-                          </span>
-                        </div>
-                        <span className="text-xs text-[var(--text-dim)] flex items-center gap-1 truncate mt-0.5">
-                          {evo.name}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <div className={`text-sm sm:text-base font-extrabold font-theme-mono ${isUser ? 'text-white font-black' : 'text-[var(--accent)]'}`}>
-                        {player.score.toLocaleString()} pts
-                      </div>
-                      <div className="text-[10px] font-theme-mono text-zinc-500">
-                        Nivel {player.maxLevel}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Floating Expansion Notice Pill */}
-      {isExpandedRecently && (
-        <div
-          id="board-expansion-toast"
-          className="fixed bottom-5 right-5 z-40 bg-[var(--accent)] text-black font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-full flex items-center gap-2 shadow-[0_10px_20px_rgba(245,158,11,0.3)] animate-in slide-in-from-bottom-3 duration-200"
-        >
-          <Maximize2 className="w-4 h-4" />
-          <span>¡Tablero Expandido a {boardSize}x{boardSize}!</span>
-        </div>
-      )}
-
-      {/* Salvage Notice */}
-      {salvageNotice && (
-        <div
-          id="salvage-success-toast"
-          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 bg-emerald-500 text-black font-extrabold text-xs sm:text-sm px-5 py-2.5 rounded-full flex items-center gap-2 shadow-2xl animate-in slide-in-from-bottom-3 duration-200"
-        >
-          <Sparkles className="w-4 h-4" />
-          <span>{salvageNotice}</span>
-        </div>
-      )}
-
-      {/* Modal Pantalla Completa de Celebración por Hitos (Pop-up Gigante) */}
-      {celebrationLevel !== null && (
-        <MilestoneCelebrationModal
-          isOpen={isCelebrationOpen}
-          level={celebrationLevel}
-          onCompleted={handleMilestoneCelebrationCompleted}
-        />
-      )}
-
       {/* Modal de Anuncio de Recompensa (Revivir / Limpiar Cochera con 4 o 5 fichas) */}
       <RewardedAdModal
         isOpen={isRewardedAdOpen}
@@ -1328,15 +1093,6 @@ export default function App() {
         }}
       />
 
-      {/* Modal de Clasificación Global (también accesible vía modal) */}
-      <LeaderboardModal
-        isOpen={isLeaderboardModalOpen}
-        onClose={() => setIsLeaderboardModalOpen(false)}
-        currentScore={score}
-        bestScore={bestScore}
-        highestLevelUnlocked={highestLevelUnlocked}
-      />
-
       {/* Codex / Museum Modal */}
       <CodexModal
         isOpen={isCodexOpen}
@@ -1344,11 +1100,6 @@ export default function App() {
         highestLevelUnlocked={highestLevelUnlocked}
       />
 
-      {/* YouTube Playables Interstitial Simulation Banner */}
-      <YouTubeAdBanner
-        adEvent={ytAdEvent}
-        onClose={() => setYtAdEvent(null)}
-      />
     </div>
   );
 }

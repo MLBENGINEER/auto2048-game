@@ -9,6 +9,10 @@
     <meta property="og:description" content="Clon avanzado, infinito y dinámico de 2048 con temática de evolución automotriz y tablero autoexpansible para YouTube Playables." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- SDK de YouTube Playables. Obligatorio cargarlo antes del codigo del
+         juego. Fuera de YouTube el archivo no existe y el juego funciona igual,
+         porque todo su uso pasa por src/utils/playables.ts. -->
+    <script src="https://www.youtube.com/game_api/v1"></script>
   </head>
   <body class="bg-zinc-950 text-white select-none overflow-hidden touch-none">
     <div id="root"></div>

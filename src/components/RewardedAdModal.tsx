@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Play, RotateCcw, Wrench, Film, CheckCircle2 } from 'lucide-react';
-import { ejecutarAnuncioRecompensa } from '../game/engine';
+import { anuncioRecompensa } from '../utils/playables';
 
 interface RewardedAdModalProps {
   isOpen: boolean;
@@ -18,40 +18,35 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   onGameOverRestart,
 }) => {
   const [isPlayingAd, setIsPlayingAd] = useState(false);
-  const [adProgress, setAdProgress] = useState(0);
+  const [noCompletado, setNoCompletado] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setIsPlayingAd(false);
-      setAdProgress(0);
+      setNoCompletado(false);
     }
   }, [isOpen]);
 
   const handleStartRewardedAd = async () => {
     setIsPlayingAd(true);
-    setAdProgress(0);
+    setNoCompletado(false);
 
-    // Disparar hook de YouTube Playables
-    ejecutarAnuncioRecompensa();
+    // El anuncio lo dibuja YouTube por encima del juego. Aquí solo se espera al
+    // resultado; no hay barra de progreso propia porque no controlamos el vídeo.
+    const resultado = await anuncioRecompensa('revivir-cochera');
 
-    // Animación de carga de 3 segundos simulando el anuncio de YouTube
-    const duration = 3000;
-    const interval = 50;
-    let elapsed = 0;
+    setIsPlayingAd(false);
 
-    const timer = setInterval(() => {
-      elapsed += interval;
-      const pct = Math.min(100, Math.round((elapsed / duration) * 100));
-      setAdProgress(pct);
+    if (resultado === 'no-ganada') {
+      // Hubo anuncio y el jugador no lo terminó: no hay premio.
+      setNoCompletado(true);
+      return;
+    }
 
-      if (elapsed >= duration) {
-        clearInterval(timer);
-        setTimeout(() => {
-          setIsPlayingAd(false);
-          onAdCompleted();
-        }, 200);
-      }
-    }, interval);
+    // 'ganada', o 'no-disponible' (sin inventario o fuera de YouTube). En el
+    // segundo caso se concede igual: no había anuncio que mostrar, así que
+    // negarle la partida al jugador no protege ningún ingreso.
+    onAdCompleted();
   };
 
   if (!isOpen) return null;
@@ -110,6 +105,15 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
               </div>
             </div>
 
+            {noCompletado && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-1 text-center">
+                <p className="text-xs font-semibold text-red-300">
+                  No completaste el anuncio, así que la cochera sigue llena.
+                  Puedes intentarlo otra vez.
+                </p>
+              </div>
+            )}
+
             {/* Buttons */}
             <div className="space-y-2.5 mt-5">
               <button
@@ -143,27 +147,16 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
                 YouTube Playables SDK
               </span>
               <h3 className="text-lg font-black text-white">
-                Transmitiendo Anuncio de Salvación...
+                Cargando anuncio...
               </h3>
               <p className="text-xs text-amber-300 mt-1 font-medium">
                 Despejando 4 o 5 piezas menores para continuar tu racha hacia el Top Mundial
               </p>
             </div>
 
-            {/* Barra de progreso de 3 segundos */}
-            <div className="w-full bg-black/60 rounded-full h-3 overflow-hidden border border-white/10 p-0.5 my-4">
-              <div
-                className="bg-gradient-to-r from-red-500 via-amber-500 to-emerald-400 h-full rounded-full transition-all duration-75"
-                style={{ width: `${adProgress}%` }}
-              />
-            </div>
-
-            <div className="flex items-center justify-between text-xs font-theme-mono text-[var(--text-dim)] px-1">
-              <span>{Math.round((3 * adProgress) / 100)}s / 3s</span>
-              <span className="text-emerald-400 flex items-center gap-1 font-semibold">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Limpieza lista
-              </span>
+            <div className="flex items-center justify-center gap-2 text-xs font-theme-mono text-[var(--text-dim)] my-4">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Limpieza lista al terminar</span>
             </div>
           </div>
         )}
