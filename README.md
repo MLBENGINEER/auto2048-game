@@ -32,6 +32,19 @@ Para revisar la compilación antes de publicar:
 npm run preview
 ```
 
+## Archivo único para YouTube Playables
+
+```bash
+npm run build:standalone
+```
+
+Compila y genera `dist/standalone.html` (~14 MB): el juego entero en un solo
+archivo, con el CSS, el JavaScript y las 17 imágenes de vehículos incrustadas en
+base64. No hace ninguna petición de red, así que funciona abriéndolo directamente.
+
+El script avisa por consola si el código referencia imágenes que no existen en
+`public/`.
+
 ## Publicación
 
 Cada `push` a la rama `main` dispara el workflow
